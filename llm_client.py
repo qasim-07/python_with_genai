@@ -1,15 +1,3 @@
-"""
-LLM Client Module
-
-This module demonstrates how to integrate with OpenAI's API for language model queries.
-It shows important Python concepts like:
-- API integration with external services
-- Environment variables and configuration
-- JSON handling
-- Error handling and retries
-- Rate limiting and cost management
-- Async programming concepts (for future enhancement)
-"""
 
 import os
 import json
@@ -19,17 +7,7 @@ import requests
 import time
 
 class LLMClient:
-    """
-    A client for interacting with OpenAI's language models.
-    
-    This demonstrates:
-    - API integration patterns
-    - Configuration management
-    - Error handling and resilience
-    - Cost optimization
-    - Response processing
-    """
-    
+
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo"):
         """
         Initialize the LLM client.
