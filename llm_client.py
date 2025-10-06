@@ -11,19 +11,8 @@ class LLMClient:
     def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4.1", 
                  endpoint: Optional[str] = None, deployment: Optional[str] = None, 
                  api_version: str = "2024-12-01-preview"):
-        """
-        Initialize the Azure OpenAI LLM client.
-        
-        Args:
-            api_key (Optional[str]): Azure OpenAI API key. If None, will try to get from environment.
-            model (str): The model to use for queries (default: gpt-4.1)
-            endpoint (Optional[str]): Azure OpenAI endpoint URL
-            deployment (Optional[str]): Azure OpenAI deployment name
-            api_version (str): Azure OpenAI API version
-        """
         self.logger = logging.getLogger(__name__)
         
-        # Get Azure OpenAI configuration from parameters or environment
         self.api_key = api_key or os.getenv('AZURE_OPENAI_API_KEY')
         if not self.api_key:
             raise ValueError(
@@ -42,53 +31,35 @@ class LLMClient:
                 "or pass it as a parameter."
             )
         
-        # Build the Azure OpenAI API URL
         self.base_url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions"
         
-        # Headers for Azure OpenAI API requests
         self.headers = {
             'api-key': self.api_key,
             'Content-Type': 'application/json'
         }
         
-        # Rate limiting
         self.last_request_time = 0
-        self.min_delay = 5.0  # Minimum delay between requests (increased to avoid rate limits)
-        self.rate_limit_retry_delay = 60  # Wait 60 seconds if rate limited
+        self.min_delay = 5.0  
+        self.rate_limit_retry_delay = 60  
         
-        # Cost tracking (optional)
         self.total_tokens_used = 0
         
         self.logger.info(f"Azure OpenAI LLM client initialized with model: {model}, deployment: {self.deployment}")
     
     def query(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Dict[str, Any]:
-        """
-        Send a query to the LLM and get a response.
-        
-        Args:
-            prompt (str): The user's prompt/query
-            max_tokens (int): Maximum tokens to generate
-            temperature (float): Sampling temperature (0.0 to 1.0)
-            
-        Returns:
-            Dict[str, Any]: Response from the LLM with metadata
-        """
+
         try:
             self.logger.info(f"Sending query to LLM: {prompt[:50]}...")
             
-            # Rate limiting
             self._respect_rate_limit()
             
-            # Prepare the request
             payload = self._build_payload(prompt, max_tokens, temperature)
             
-            # Make the API request
             response = self._make_api_request(payload)
             
             if not response:
                 return self._create_error_result("Failed to get response from LLM")
             
-            # Process the response
             result = self._process_response(response, prompt)
             
             self.logger.info("Successfully received response from LLM")
@@ -99,7 +70,6 @@ class LLMClient:
             return self._create_error_result(f"LLM query failed: {str(e)}")
     
     def _respect_rate_limit(self):
-        """Ensure we don't exceed API rate limits."""
         current_time = time.time()
         time_since_last = current_time - self.last_request_time
         
@@ -111,18 +81,6 @@ class LLMClient:
         self.last_request_time = time.time()
     
     def _build_payload(self, prompt: str, max_tokens: int, temperature: float) -> Dict[str, Any]:
-        """
-        Build the API request payload.
-        
-        Args:
-            prompt (str): The user's prompt
-            max_tokens (int): Maximum tokens to generate
-            temperature (float): Sampling temperature
-            
-        Returns:
-            Dict[str, Any]: The API payload
-        """
-        # Create a system message to guide the model's behavior
         system_message = (
             "You are a helpful AI assistant. Provide clear, accurate, and concise answers. "
             "If the question is about mathematics, programming, or technical topics, "
@@ -145,17 +103,7 @@ class LLMClient:
         return payload
     
     def _make_api_request(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Make the API request to Azure OpenAI.
-        
-        Args:
-            payload (Dict[str, Any]): The request payload
-            
-        Returns:
-            Optional[Dict[str, Any]]: The API response or None if failed
-        """
         try:
-            # Add API version as query parameter for Azure OpenAI
             url = f"{self.base_url}?api-version={self.api_version}"
             
             response = requests.post(
@@ -165,7 +113,6 @@ class LLMClient:
                 timeout=30
             )
             
-            # Check for HTTP errors
             response.raise_for_status()
             
             return response.json()
@@ -173,7 +120,6 @@ class LLMClient:
         except requests.exceptions.HTTPError as http_error:
             if http_error.response.status_code == 429:
                 self.logger.warning("Rate limit exceeded. Please wait before making another request.")
-                # Update the last request time to enforce longer delay
                 self.last_request_time = time.time() + self.rate_limit_retry_delay
                 return None
             elif http_error.response.status_code == 401:
@@ -193,18 +139,8 @@ class LLMClient:
             return None
     
     def _process_response(self, response: Dict[str, Any], original_prompt: str) -> Dict[str, Any]:
-        """
-        Process the API response and extract the answer.
-        
-        Args:
-            response (Dict[str, Any]): The API response
-            original_prompt (str): The original user prompt
-            
-        Returns:
-            Dict[str, Any]: Processed result
-        """
+
         try:
-            # Extract the answer from the response
             choices = response.get('choices', [])
             if not choices:
                 return self._create_error_result("No response choices available")
@@ -213,12 +149,10 @@ class LLMClient:
             if not answer:
                 return self._create_error_result("Empty response from LLM")
             
-            # Extract usage information
             usage = response.get('usage', {})
             tokens_used = usage.get('total_tokens', 0)
             self.total_tokens_used += tokens_used
             
-            # Create the result
             result = {
                 "query": original_prompt,
                 "answer": answer,
@@ -235,15 +169,6 @@ class LLMClient:
             return self._create_error_result(f"Failed to process response: {str(e)}")
     
     def _create_error_result(self, error_message: str) -> Dict[str, Any]:
-        """
-        Create a standardized error result.
-        
-        Args:
-            error_message (str): The error message
-            
-        Returns:
-            Dict[str, Any]: Error result dictionary
-        """
         return {
             "query": "",
             "answer": f"Sorry, I couldn't process your request: {error_message}",
@@ -252,12 +177,6 @@ class LLMClient:
         }
     
     def get_usage_stats(self) -> Dict[str, Any]:
-        """
-        Get usage statistics for this session.
-        
-        Returns:
-            Dict[str, Any]: Usage statistics
-        """
         return {
             "total_tokens_used": self.total_tokens_used,
             "model": self.model,
@@ -265,33 +184,19 @@ class LLMClient:
         }
     
     def _estimate_cost(self) -> float:
-        """
-        Estimate the cost of Azure OpenAI API usage (rough approximation).
-        
-        Returns:
-            float: Estimated cost in USD
-        """
-        # Rough cost estimates for GPT-4 (Azure OpenAI pricing)
-        # These are approximate and may change based on your Azure pricing tier
         if "gpt-4" in self.model.lower():
-            cost_per_1k_tokens = 0.03  # $0.03 per 1k tokens for GPT-4
+            cost_per_1k_tokens = 0.03  
         else:
-            cost_per_1k_tokens = 0.002  # $0.002 per 1k tokens for GPT-3.5
+            cost_per_1k_tokens = 0.002  
         
         return (self.total_tokens_used / 1000) * cost_per_1k_tokens
     
     def reset_usage_stats(self):
-        """Reset usage statistics."""
         self.total_tokens_used = 0
         self.logger.info("Usage statistics reset")
     
     def test_connection(self) -> bool:
-        """
-        Test the connection to the Azure OpenAI API.
-        
-        Returns:
-            bool: True if connection is successful, False otherwise
-        """
+
         try:
             test_payload = {
                 "model": self.model,
