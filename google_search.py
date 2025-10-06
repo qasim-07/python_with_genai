@@ -1,55 +1,93 @@
 
 import requests
-from bs4 import BeautifulSoup
 import time
 import logging
+import os
 from typing import List, Dict, Any, Optional
-from urllib.parse import quote_plus, urljoin
-import re
 
 class GoogleSearcher:
+    """
+    Google Custom Search API client for reliable search results.
     
-    def __init__(self):
-
+    This class demonstrates:
+    - API integration with Google Custom Search
+    - Error handling for API requests
+    - Rate limiting and quota management
+    - Data processing and formatting
+    """
+    
+    def __init__(self, api_key: str = None, cx: str = None):
+        """
+        Initialize the Google Custom Search client.
+        
+        Args:
+            api_key: Google API key (from Google Cloud Console)
+            cx: Custom Search Engine ID
+        """
         self.logger = logging.getLogger(__name__)
         
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-        }
-
-        self.base_url = "https://www.google.com/search"
+        # Get API credentials from parameters or environment
+        self.api_key = api_key or os.getenv('GOOGLE_API_KEY')
+        self.cx = cx or os.getenv('GOOGLE_CX')
         
+        if not self.api_key:
+            raise ValueError(
+                "Google API key not found. Please set GOOGLE_API_KEY environment variable "
+                "or pass it as a parameter."
+            )
+        
+        if not self.cx:
+            raise ValueError(
+                "Google Custom Search Engine ID not found. Please set GOOGLE_CX environment variable "
+                "or pass it as a parameter."
+            )
+        
+        self.base_url = "https://www.googleapis.com/customsearch/v1"
+        
+        # Rate limiting
         self.last_request_time = 0
-        self.min_delay = 1.0  
+        self.min_delay = 1.0  # 1 second between requests
         
-        self.logger.info("Google searcher initialized")
+        # Quota tracking
+        self.daily_quota_used = 0
+        self.daily_quota_limit = 100  # Free tier limit
+        
+        self.logger.info(f"Google Custom Search client initialized with CX: {self.cx}")
     
     def search(self, query: str, num_results: int = 5) -> Dict[str, Any]:
-
+        """
+        Search using Google Custom Search API.
+        
+        Args:
+            query: Search query
+            num_results: Number of results to return (max 10)
+            
+        Returns:
+            Dictionary with search results
+        """
         try:
             self.logger.info(f"Searching Google for: {query}")
             
+            # Check quota
+            if self.daily_quota_used >= self.daily_quota_limit:
+                return self._create_error_result("Daily quota exceeded")
+            
+            # Rate limiting
             self._respect_rate_limit()
             
-            search_url = self._build_search_url(query)
-            
-            # Make the request
-            response = self._make_request(search_url)
+            # Make API request
+            response = self._make_api_request(query, num_results)
             
             if not response:
                 return self._create_error_result("Failed to get search results")
             
-            # Parse the response
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Process the response
+            result = self._process_api_response(response, query)
             
-            # Extract information
-            result = self._extract_search_results(soup, query, num_results)
+            # Update quota usage
+            self.daily_quota_used += 1
             
-            self.logger.info(f"Successfully extracted {len(result.get('urls', []))} results")
+            self.logger.info(f"Successfully retrieved {len(result.get('urls', []))} results")
             return result
             
         except Exception as e:
@@ -57,6 +95,7 @@ class GoogleSearcher:
             return self._create_error_result(f"Search failed: {str(e)}")
     
     def _respect_rate_limit(self):
+        """Ensure we don't exceed API rate limits."""
         current_time = time.time()
         time_since_last = current_time - self.last_request_time
         
@@ -67,208 +106,169 @@ class GoogleSearcher:
         
         self.last_request_time = time.time()
     
-    def _build_search_url(self, query: str) -> str:
-        encoded_query = quote_plus(query)
-        
-        # Build the search URL with parameters
-        search_url = f"{self.base_url}?q={encoded_query}&num=10"
-        
-        return search_url
-    
-    def _make_request(self, url: str) -> Optional[requests.Response]:
+    def _make_api_request(self, query: str, num_results: int) -> Optional[Dict[str, Any]]:
         """
-        Make an HTTP request with proper error handling.
+        Make a request to Google Custom Search API.
         
         Args:
-            url (str): The URL to request
+            query: Search query
+            num_results: Number of results to return
             
         Returns:
-            Optional[requests.Response]: The response object or None if failed
+            API response as dictionary or None if failed
         """
         try:
-            # Try with SSL verification first
-            response = requests.get(url, headers=self.headers, timeout=10, verify=True)
-            response.raise_for_status()  # Raise an exception for bad status codes
-            return response
+            # Limit num_results to API maximum
+            num_results = min(num_results, 10)
             
-        except requests.exceptions.SSLError as ssl_error:
-            self.logger.warning(f"SSL verification failed, trying without verification: {str(ssl_error)}")
-            try:
-                # Fallback: try without SSL verification (less secure but works)
-                response = requests.get(url, headers=self.headers, timeout=10, verify=False)
-                response.raise_for_status()
-                return response
-            except requests.exceptions.RequestException as e:
-                self.logger.error(f"Request failed even without SSL verification: {str(e)}")
-                return None
+            print(self.api_key, self.cx, query, num_results)
+            print(self.base_url)
+            
+            params = {
+                'key': self.api_key,
+                'cx': self.cx,
+                'q': query,
+                'num': num_results,
+                'fields': 'items(title,link,snippet),searchInformation(totalResults)'
+            }
+            
+            response = requests.get(self.base_url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            return response.json()
+            
+        except requests.exceptions.HTTPError as http_error:
+            if http_error.response.status_code == 403:
+                self.logger.error("API quota exceeded or invalid API key")
+            elif http_error.response.status_code == 400:
+                self.logger.error("Invalid request parameters")
+            else:
+                self.logger.error(f"HTTP error: {http_error}")
+            return None
+            
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Request failed: {str(e)}")
+            self.logger.error(f"API request failed: {e}")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Unexpected error during API request: {e}")
             return None
     
-    def _extract_search_results(self, soup: BeautifulSoup, query: str, num_results: int) -> Dict[str, Any]:
+    def _process_api_response(self, api_response: Dict[str, Any], query: str) -> Dict[str, Any]:
         """
-        Extract search results from the HTML response.
+        Process the Google Custom Search API response.
         
         Args:
-            soup (BeautifulSoup): Parsed HTML
-            query (str): Original search query
-            num_results (int): Number of results to extract
+            api_response: Raw API response
+            query: Original search query
             
         Returns:
-            Dict[str, Any]: Extracted search results
+            Processed search results
         """
         result = {
             "query": query,
             "answer": "",
             "urls": [],
-            "snippets": []
+            "snippets": [],
+            "titles": [],
+            "total_results": 0
         }
         
-        # Try to find featured snippets or direct answers
-        featured_snippet = self._extract_featured_snippet(soup)
-        if featured_snippet:
-            result["answer"] = featured_snippet
-            result["answer_type"] = "featured_snippet"
-        
-        # Extract regular search results
-        search_results = self._extract_regular_results(soup, num_results)
-        result["urls"] = search_results["urls"]
-        result["snippets"] = search_results["snippets"]
-        
-        # If no featured snippet, use the first snippet as answer
-        if not result["answer"] and result["snippets"]:
-            result["answer"] = result["snippets"][0]
-            result["answer_type"] = "first_result"
-        
-        # If still no answer, provide a fallback
-        if not result["answer"]:
-            result["answer"] = f"I couldn't find specific results for '{query}'. This might be due to Google's search restrictions or network issues. You might want to try a different search engine or rephrase your question."
-            result["answer_type"] = "fallback"
+        try:
+            # Extract total results count
+            search_info = api_response.get('searchInformation', {})
+            result["total_results"] = int(search_info.get('totalResults', 0))
+            
+            # Extract items
+            items = api_response.get('items', [])
+            
+            for item in items:
+                # Extract URL
+                link = item.get('link', '')
+                if link:
+                    result["urls"].append(link)
+                
+                # Extract snippet
+                snippet = item.get('snippet', '')
+                if snippet:
+                    result["snippets"].append(snippet)
+                
+                # Extract title
+                title = item.get('title', '')
+                if title:
+                    result["titles"].append(title)
+            
+            # Use first snippet as answer if available
+            if result["snippets"]:
+                result["answer"] = result["snippets"][0]
+                result["answer_type"] = "api_result"
+            else:
+                result["answer"] = f"No results found for '{query}'"
+                result["answer_type"] = "no_results"
+            
+            self.logger.info(f"Processed {len(items)} results from API")
+            
+        except Exception as e:
+            self.logger.error(f"Error processing API response: {e}")
+            result["answer"] = f"Error processing search results: {str(e)}"
+            result["answer_type"] = "error"
         
         return result
     
-    def _extract_featured_snippet(self, soup: BeautifulSoup) -> Optional[str]:
+    def get_quota_info(self) -> Dict[str, Any]:
         """
-        Extract featured snippets or knowledge panels.
+        Get information about API quota usage.
         
-        Args:
-            soup (BeautifulSoup): Parsed HTML
-            
         Returns:
-            Optional[str]: Featured snippet text or None
+            Dictionary with quota information
         """
-        # Look for various featured snippet selectors
-        selectors = [
-            '.kno-rdesc span',  # Knowledge panel description
-            '.Z0LcW',  # Featured snippet
-            '.hgKElc',  # Answer box
-            '.BNeawe',  # Answer text
-            '.s3v9rd',  # Answer content
-        ]
-        
-        for selector in selectors:
-            elements = soup.select(selector)
-            for element in elements:
-                text = element.get_text(strip=True)
-                if text and len(text) > 20:  # Only return substantial text
-                    return text
-        
-        return None
-    
-    def _extract_regular_results(self, soup: BeautifulSoup, num_results: int) -> Dict[str, List[str]]:
-        """
-        Extract regular search results (titles, URLs, snippets).
-        
-        Args:
-            soup (BeautifulSoup): Parsed HTML
-            num_results (int): Number of results to extract
-            
-        Returns:
-            Dict[str, List[str]]: URLs and snippets
-        """
-        urls = []
-        snippets = []
-        
-        # Find search result containers - try multiple selectors
-        result_containers = soup.find_all('div', class_='g')
-        
-        # If no results with 'g' class, try alternative selectors
-        if not result_containers:
-            result_containers = soup.find_all('div', {'data-ved': True})
-        
-        if not result_containers:
-            result_containers = soup.find_all('div', class_='rc')
-        
-        self.logger.debug(f"Found {len(result_containers)} result containers")
-        
-        for container in result_containers[:num_results]:
-            # Extract URL - try multiple selectors
-            link_element = container.find('a', href=True)
-            if not link_element:
-                link_element = container.find('h3').find('a', href=True) if container.find('h3') else None
-            
-            if link_element:
-                url = link_element['href']
-                # Clean up Google's redirect URLs
-                if url.startswith('/url?q='):
-                    url = url.split('/url?q=')[1].split('&')[0]
-                elif url.startswith('/search?'):
-                    continue  # Skip internal Google links
-                urls.append(url)
-            
-            # Extract snippet - try multiple selectors
-            snippet_element = container.find('span', class_='aCOpRe')
-            if not snippet_element:
-                snippet_element = container.find('div', class_='VwiC3b')
-            if not snippet_element:
-                snippet_element = container.find('span', class_='st')
-            if not snippet_element:
-                snippet_element = container.find('div', class_='s')
-            
-            if snippet_element:
-                snippet_text = snippet_element.get_text(strip=True)
-                if snippet_text and len(snippet_text) > 10:  # Only add substantial snippets
-                    snippets.append(snippet_text)
-        
         return {
-            "urls": urls,
-            "snippets": snippets
+            "quota_used": self.daily_quota_used,
+            "quota_limit": self.daily_quota_limit,
+            "quota_remaining": self.daily_quota_limit - self.daily_quota_used,
+            "quota_percentage": (self.daily_quota_used / self.daily_quota_limit) * 100
         }
+    
+    def reset_quota(self):
+        """Reset daily quota counter (call this daily)."""
+        self.daily_quota_used = 0
+        self.logger.info("Daily quota reset")
     
     def _create_error_result(self, error_message: str) -> Dict[str, Any]:
         """
         Create a standardized error result.
         
         Args:
-            error_message (str): The error message
+            error_message: The error message
             
         Returns:
-            Dict[str, Any]: Error result dictionary
+            Error result dictionary
         """
         return {
             "query": "",
             "answer": f"Sorry, I couldn't search Google: {error_message}",
             "urls": [],
             "snippets": [],
+            "titles": [],
+            "total_results": 0,
             "error": error_message
         }
     
     def get_search_suggestions(self, query: str) -> List[str]:
         """
-        Get search suggestions for a query (bonus feature).
+        Get search suggestions for a query.
         
         Args:
-            query (str): The search query
+            query: The search query
             
         Returns:
-            List[str]: List of search suggestions
+            List of search suggestions
         """
         try:
-            # This would typically use Google's autocomplete API
-            # For now, we'll return some basic suggestions
+            # Basic suggestions based on query
             suggestions = [
                 f"{query} meaning",
-                f"{query} definition",
+                f"{query} definition", 
                 f"what is {query}",
                 f"{query} information",
                 f"{query} facts"

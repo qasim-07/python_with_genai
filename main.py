@@ -96,7 +96,7 @@ class IntelligentQueryRouter:
         """
         display_banner()
         
-        print("\n🤖 Welcome to the Intelligent Query Router!")
+        print("\n Welcome to the Intelligent Query Router!")
         print("Ask me anything - I'll automatically choose the best tool to answer your question.")
         print("\nExamples:")
         print("• 'What is the capital of India?' → Google Search")
@@ -107,7 +107,7 @@ class IntelligentQueryRouter:
         while True:
             try:
                 # Get user input
-                query = input("🔍 Your question: ").strip()
+                query = input(" Your question: ").strip()
                 
                 # Check for exit commands
                 if query.lower() in ['quit', 'exit', 'q']:
@@ -119,7 +119,7 @@ class IntelligentQueryRouter:
                     continue
                 
                 # Process the query
-                print("\n🔄 Processing your query...")
+                print("\n Processing your query...")
                 result = self.process_query(query)
                 
                 # Display results
@@ -142,7 +142,7 @@ class IntelligentQueryRouter:
         print("\n" + "="*60)
         
         if "error" in result:
-            print(f"❌ Error: {result['error']}")
+            print(f"Error: {result['error']}")
             return
         
         print(f"📝 Query: {result.get('query', 'N/A')}")
@@ -173,7 +173,7 @@ def main():
         router.run_interactive_mode()
         
     except Exception as e:
-        print(f"❌ Failed to start application: {str(e)}")
+        print(f" Failed to start application: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -8,30 +8,46 @@ import time
 
 class LLMClient:
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4.1", 
+                 endpoint: Optional[str] = None, deployment: Optional[str] = None, 
+                 api_version: str = "2024-12-01-preview"):
         """
-        Initialize the LLM client.
+        Initialize the Azure OpenAI LLM client.
         
         Args:
-            api_key (Optional[str]): OpenAI API key. If None, will try to get from environment.
-            model (str): The model to use for queries
+            api_key (Optional[str]): Azure OpenAI API key. If None, will try to get from environment.
+            model (str): The model to use for queries (default: gpt-4.1)
+            endpoint (Optional[str]): Azure OpenAI endpoint URL
+            deployment (Optional[str]): Azure OpenAI deployment name
+            api_version (str): Azure OpenAI API version
         """
         self.logger = logging.getLogger(__name__)
         
-        # Get API key from parameter or environment
-        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        # Get Azure OpenAI configuration from parameters or environment
+        self.api_key = api_key or os.getenv('AZURE_OPENAI_API_KEY')
         if not self.api_key:
             raise ValueError(
-                "OpenAI API key not found. Please set OPENAI_API_KEY environment variable "
+                "Azure OpenAI API key not found. Please set AZURE_OPENAI_API_KEY environment variable "
                 "or pass it as a parameter."
             )
         
         self.model = model
-        self.base_url = "https://api.openai.com/v1/chat/completions"
+        self.deployment = deployment or os.getenv('AZURE_OPENAI_DEPLOYMENT', 'gpt-4.1')
+        self.endpoint = endpoint or os.getenv('AZURE_OPENAI_ENDPOINT')
+        self.api_version = api_version or os.getenv('AZURE_OPENAI_API_VERSION', '2024-12-01-preview')
         
-        # Headers for API requests
+        if not self.endpoint:
+            raise ValueError(
+                "Azure OpenAI endpoint not found. Please set AZURE_OPENAI_ENDPOINT environment variable "
+                "or pass it as a parameter."
+            )
+        
+        # Build the Azure OpenAI API URL
+        self.base_url = f"{self.endpoint}/openai/deployments/{self.deployment}/chat/completions"
+        
+        # Headers for Azure OpenAI API requests
         self.headers = {
-            'Authorization': f'Bearer {self.api_key}',
+            'api-key': self.api_key,
             'Content-Type': 'application/json'
         }
         
@@ -43,7 +59,7 @@ class LLMClient:
         # Cost tracking (optional)
         self.total_tokens_used = 0
         
-        self.logger.info(f"LLM client initialized with model: {model}")
+        self.logger.info(f"Azure OpenAI LLM client initialized with model: {model}, deployment: {self.deployment}")
     
     def query(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> Dict[str, Any]:
         """
@@ -122,15 +138,15 @@ class LLMClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": 1.0,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0
+            "frequency_penalty": 2.0,
+            "presence_penalty": 2.0
         }
         
         return payload
     
     def _make_api_request(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Make the API request to OpenAI.
+        Make the API request to Azure OpenAI.
         
         Args:
             payload (Dict[str, Any]): The request payload
@@ -139,8 +155,11 @@ class LLMClient:
             Optional[Dict[str, Any]]: The API response or None if failed
         """
         try:
+            # Add API version as query parameter for Azure OpenAI
+            url = f"{self.base_url}?api-version={self.api_version}"
+            
             response = requests.post(
-                self.base_url,
+                url,
                 headers=self.headers,
                 json=payload,
                 timeout=30
@@ -154,9 +173,17 @@ class LLMClient:
         except requests.exceptions.HTTPError as http_error:
             if http_error.response.status_code == 429:
                 self.logger.warning("Rate limit exceeded. Please wait before making another request.")
+                # Update the last request time to enforce longer delay
+                self.last_request_time = time.time() + self.rate_limit_retry_delay
+                return None
+            elif http_error.response.status_code == 401:
+                self.logger.error("Authentication failed. Please check your Azure OpenAI API key.")
+                return None
+            elif http_error.response.status_code == 403:
+                self.logger.error("Access forbidden. Please check your Azure OpenAI permissions and deployment.")
                 return None
             else:
-                self.logger.error(f"HTTP error: {str(http_error)}")
+                self.logger.error(f"HTTP error {http_error.response.status_code}: {str(http_error)}")
                 return None
         except requests.exceptions.RequestException as e:
             self.logger.error(f"API request failed: {str(e)}")
@@ -239,14 +266,18 @@ class LLMClient:
     
     def _estimate_cost(self) -> float:
         """
-        Estimate the cost of API usage (rough approximation).
+        Estimate the cost of Azure OpenAI API usage (rough approximation).
         
         Returns:
             float: Estimated cost in USD
         """
-        # Rough cost estimates for GPT-3.5-turbo (as of 2023)
-        # These are approximate and may change
-        cost_per_1k_tokens = 0.002  # $0.002 per 1k tokens
+        # Rough cost estimates for GPT-4 (Azure OpenAI pricing)
+        # These are approximate and may change based on your Azure pricing tier
+        if "gpt-4" in self.model.lower():
+            cost_per_1k_tokens = 0.03  # $0.03 per 1k tokens for GPT-4
+        else:
+            cost_per_1k_tokens = 0.002  # $0.002 per 1k tokens for GPT-3.5
+        
         return (self.total_tokens_used / 1000) * cost_per_1k_tokens
     
     def reset_usage_stats(self):
@@ -256,7 +287,7 @@ class LLMClient:
     
     def test_connection(self) -> bool:
         """
-        Test the connection to the OpenAI API.
+        Test the connection to the Azure OpenAI API.
         
         Returns:
             bool: True if connection is successful, False otherwise
@@ -265,7 +296,8 @@ class LLMClient:
             test_payload = {
                 "model": self.model,
                 "messages": [{"role": "user", "content": "Hello"}],
-                "max_tokens": 10
+                "max_tokens": 10,
+                "temperature": 0.0
             }
             
             response = self._make_api_request(test_payload)
