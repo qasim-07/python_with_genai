@@ -6,6 +6,12 @@ requests>=2.31.0          # For HTTP requests to APIs and web scraping
 beautifulsoup4>=4.12.0    # For HTML parsing and web scraping
 lxml>=4.9.0               # XML/HTML parser for BeautifulSoup
 
+# LangGraph dependencies
+langgraph>=0.2.0          # For building state graphs with LLM routing
+langchain>=0.3.0          # Core LangChain functionality
+langchain-openai>=0.2.0   # Azure OpenAI integration for LangChain
+langchain-core>=0.3.0     # Core LangChain components
+
 # Optional dependencies for enhanced functionality
 python-dotenv>=1.0.0      # For loading environment variables from .env files
 colorama>=0.4.6           # For colored terminal output (optional)

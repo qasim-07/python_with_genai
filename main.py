@@ -1,7 +1,8 @@
 """
-Intelligent Query Router - A Python AI Project
-This project demonstrates how to build an intelligent system that routes queries
-to either Google search or an LLM based on the query type.
+Intelligent Query Router - A Python AI Project with LangGraph and Azure OpenAI
+This project demonstrates how to build an intelligent system that uses LangGraph
+and Azure OpenAI LLM-based routing to dynamically decide whether to route queries 
+to Google search or an LLM based on intelligent analysis of the query content.
 """
 
 import os
@@ -16,9 +17,7 @@ except ImportError:
     print("python-dotenv not installed. Install with: pip install python-dotenv")
     print("Or set environment variables manually.")
 
-from query_classifier import QueryClassifier
-from google_search import GoogleSearcher
-from llm_client import LLMClient
+from langgraph_router import LangGraphRouter
 from utils import setup_logging, display_banner
 from ui_components import UIComponents
 
@@ -27,30 +26,19 @@ class IntelligentQueryRouter:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         
-        self.classifier = QueryClassifier()
-        self.google_searcher = GoogleSearcher()
-        self.llm_client = LLMClient()
+        # Use LangGraph-based LLM router instead of manual classifier
+        self.router = LangGraphRouter()
         
-        self.logger.info("Intelligent Query Router initialized successfully")
+        self.logger.info("Intelligent Query Router with LangGraph LLM routing (Azure OpenAI) initialized successfully")
     
     def process_query(self, query: str) -> Dict[str, Any]:
         try:
-            self.logger.info(f"Processing query: {query}")
+            self.logger.info(f"Processing query with LangGraph router: {query}")
             
-            query_type = self.classifier.classify_query(query)
-            self.logger.info(f"Query classified as: {query_type}")
+            # Use the LangGraph router to process the query
+            result = self.router.process_query(query)
             
-            if query_type == "search":
-                result = self.google_searcher.search(query)
-                result["source"] = "Google Search"
-            elif query_type == "llm":
-                result = self.llm_client.query(query)
-                result["source"] = "OpenAI LLM"
-            else:
-                result = self.llm_client.query(query)
-                result["source"] = "OpenAI LLM (fallback)"
-            
-            result["query_type"] = query_type
+            self.logger.info(f"Query processed successfully with tool: {result.get('tool_decision', 'unknown')}")
             return result
             
         except Exception as e:
@@ -58,7 +46,8 @@ class IntelligentQueryRouter:
             return {
                 "error": str(e),
                 "query": query,
-                "source": "Error Handler"
+                "source": "Error Handler",
+                "routing_method": "LangGraph Router (Error)"
             }
     
     def run_interactive_mode(self):
@@ -89,6 +78,19 @@ class IntelligentQueryRouter:
             except Exception as e:
                 UIComponents.print_error(f"An error occurred: {str(e)}")
                 self.logger.error(f"Unexpected error in interactive mode: {str(e)}")
+    
+    def get_routing_explanation(self, query: str) -> Dict[str, Any]:
+        """Get detailed explanation of the routing decision for a query"""
+        try:
+            return self.router.get_routing_explanation(query)
+        except Exception as e:
+            self.logger.error(f"Error getting routing explanation: {str(e)}")
+            return {
+                "query": query,
+                "tool_decision": "error",
+                "routing_method": "LangGraph Router",
+                "error": str(e)
+            }
     
     def _display_result(self, result: Dict[str, Any]):
         """Display result using the new UI components"""
