@@ -9,7 +9,6 @@ import sys
 from typing import Dict, Any
 import logging
 
-# Load environment variables from .env file
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -17,11 +16,11 @@ except ImportError:
     print("python-dotenv not installed. Install with: pip install python-dotenv")
     print("Or set environment variables manually.")
 
-# Import our custom modules
 from query_classifier import QueryClassifier
 from google_search import GoogleSearcher
 from llm_client import LLMClient
 from utils import setup_logging, display_banner
+from ui_components import UIComponents
 
 class IntelligentQueryRouter:
     
@@ -63,65 +62,40 @@ class IntelligentQueryRouter:
             }
     
     def run_interactive_mode(self):
-     
-        display_banner()
-        
-        print("\n Welcome to the Intelligent Query Router!")
-        print("Ask me anything - I'll automatically choose the best tool to answer your question.")
-        print("\nExamples:")
-        print("• 'What is the capital of India?' → Google Search")
-        print("• 'Solve 2x + 5 = 15' → AI Language Model")
-        print("• 'What is machine learning?' → AI Language Model")
-        print("\nType 'quit' or 'exit' to stop the program.\n")
+        """Run the interactive CLI mode with beautiful UI"""
+        UIComponents.print_banner()
+        UIComponents.print_welcome()
         
         while True:
             try:
-                query = input(" Your question: ").strip()
+                query = UIComponents.get_user_input()
                 
                 if query.lower() in ['quit', 'exit', 'q']:
-                    print("\n👋 Thanks for using the Intelligent Query Router!")
+                    UIComponents.print_goodbye()
                     break
                 
                 if not query:
-                    print("Please enter a question.")
+                    UIComponents.print_warning("Please enter a question.")
                     continue
                 
-                print("\n Processing your query...")
+                UIComponents.show_processing()
                 result = self.process_query(query)
                 
-                self._display_result(result)
+                UIComponents.display_result(result)
                 
             except KeyboardInterrupt:
-                print("\n\n Goodbye!")
+                UIComponents.print_goodbye()
                 break
             except Exception as e:
-                print(f"\n An error occurred: {str(e)}")
+                UIComponents.print_error(f"An error occurred: {str(e)}")
                 self.logger.error(f"Unexpected error in interactive mode: {str(e)}")
     
     def _display_result(self, result: Dict[str, Any]):
-  
-        print("\n" + "="*60)
-        
-        if "error" in result:
-            print(f"Error: {result['error']}")
-            return
-        
-        print(f" Query: {result.get('query', 'N/A')}")
-        print(f" Tool Used: {result.get('source', 'Unknown')}")
-        print(f" Query Type: {result.get('query_type', 'Unknown')}")
-        
-        if "answer" in result:
-            print(f"\n Answer:\n{result['answer']}")
-        
-        if "urls" in result and result["urls"]:
-            print(f"\n Sources:")
-            for i, url in enumerate(result["urls"][:3], 1):
-                print(f"  {i}. {url}")
-        
-        print("="*60 + "\n")
+        """Display result using the new UI components"""
+        UIComponents.display_result(result)
 
 def main():
-
+    """Main entry point for the application"""
     setup_logging()
     
     try:
@@ -129,7 +103,7 @@ def main():
         router.run_interactive_mode()
         
     except Exception as e:
-        print(f" Failed to start application: {str(e)}")
+        UIComponents.print_error(f"Failed to start application: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ lxml>=4.9.0               # XML/HTML parser for BeautifulSoup
 # Optional dependencies for enhanced functionality
 python-dotenv>=1.0.0      # For loading environment variables from .env files
 colorama>=0.4.6           # For colored terminal output (optional)
+rich>=13.0.0              # For beautiful CLI interface with panels, markdown, and colors
 
 # Development dependencies (optional)
 pytest>=7.4.0            # For running tests
